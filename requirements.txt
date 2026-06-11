@@ -1,0 +1,15 @@
+# ============================================================
+# requirements.txt — Med-Core App
+# Dependencias principales del proyecto.
+# Instalar con: pip install -r requirements.txt
+# ============================================================
+
+# Framework web principal
+flask
+
+# Adaptador de PostgreSQL (ruedas binarias precompiladas;
+# no requiere compilar libpq de forma local)
+psycopg2-binary
+
+# Carga variables de entorno desde un archivo .env
+python-dotenv

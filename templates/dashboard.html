@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Med-Core App</title>
+    <style>
+        /* Estilos mínimos para validar la vista protegida del dashboard */
+        body { font-family: sans-serif; margin: 0; background: #f0f2f5; }
+        header { background: #4f46e5; color: white; padding: 1rem 2rem;
+                 display: flex; justify-content: space-between; align-items: center; }
+        header h1 { margin: 0; font-size: 1.2rem; }
+        .logout-btn { color: white; text-decoration: none; background: rgba(255,255,255,.15);
+                      padding: .4rem .9rem; border-radius: 4px; font-size: .9rem; }
+        .logout-btn:hover { background: rgba(255,255,255,.25); }
+        main { max-width: 700px; margin: 3rem auto; padding: 0 1rem; }
+        .card { background: white; padding: 2rem; border-radius: 8px;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .badge { display: inline-block; padding: .25rem .75rem; border-radius: 20px;
+                 font-size: .8rem; font-weight: bold; text-transform: capitalize; }
+        .medico        { background: #d1fae5; color: #065f46; }
+        .administrador { background: #dbeafe; color: #1e40af; }
+        .paciente      { background: #fef3c7; color: #92400e; }
+        .alert { padding: .6rem .8rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: .9rem; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <!-- Barra de navegación con el nombre del usuario y botón de cierre de sesión -->
+    <header>
+        <h1>Med-Core App — Dashboard</h1>
+        <a href="{{ url_for('logout') }}" class="logout-btn">Cerrar sesión</a>
+    </header>
+
+    <main>
+        <!-- Mostrar mensajes flash si los hay -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        <div class="card">
+            <h2>Bienvenido, {{ username }}</h2>
+            <p>
+                Rol asignado:
+                <span class="badge {{ rol }}">{{ rol }}</span>
+            </p>
+            <hr>
+            <p>Sesión activa. Desde aquí podrás acceder a las funciones
+               correspondientes a tu rol.</p>
+        </div>
+    </main>
+</body>
+</html>
