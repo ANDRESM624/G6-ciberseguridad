@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Búsqueda - Pacientes</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 1.8rem;
+            color: #1a1a2e;
+            margin-bottom: 0.25rem;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+        .search-box {
+            background: #fff;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .search-box input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.7rem 1rem;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        .search-box input[type="text"]:focus {
+            outline: none;
+            border-color: #4a6fa5;
+            box-shadow: 0 0 0 3px rgba(74,111,165,0.15);
+        }
+        .search-box button {
+            padding: 0.7rem 1.5rem;
+            background: #1a1a2e;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .search-box button:hover {
+            background: #2d2d4e;
+        }
+        .search-box button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        .error-msg {
+            background: #fff0f0;
+            color: #b33;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            border: 1px solid #fcc;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .error-msg.visible {
+            display: block;
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+            display: none;
+        }
+        .loading.visible {
+            display: block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        thead {
+            background: #1a1a2e;
+            color: #fff;
+        }
+        th {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 0.7rem 1rem;
+            border-bottom: 1px solid #eee;
+            font-size: 0.95rem;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        tr:hover td {
+            background: #f0f4ff;
+        }
+        .no-results {
+            text-align: center;
+            padding: 2rem;
+            color: #888;
+            display: none;
+        }
+        .no-results.visible {
+            display: block;
+        }
+        .results-count {
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .badge {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1a56db;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Búsqueda de Pacientes</h1>
+        <p class="subtitle">Sistema de consulta de registros médicos — Módulo de pacientes</p>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Buscar por nombre, documento o email..." autofocus>
+            <button id="searchBtn" onclick="searchPatients()">Buscar</button>
+        </div>
+
+        <div id="errorMsg" class="error-msg"></div>
+
+        <div id="loading" class="loading">Buscando...</div>
+
+        <div id="resultsCount" class="results-count"></div>
+
+        <div id="noResults" class="no-results">No se encontraron pacientes con ese criterio.</div>
+
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre Completo</th>
+                    <th>Documento</th>
+                    <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Fecha de Nac.</th>
+                </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+
+        <div class="badge">endpoint: GET /patients/search?q=&#123;término&#125;</div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const resultsBody = document.getElementById('resultsBody');
+        const errorMsg = document.getElementById('errorMsg');
+        const loading = document.getElementById('loading');
+        const noResults = document.getElementById('noResults');
+        const resultsCount = document.getElementById('resultsCount');
+
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') searchPatients();
+        });
+
+        async function searchPatients() {
+            const query = searchInput.value.trim();
+            if (!query) {
+                showError('Por favor ingrese un término de búsqueda.');
+                return;
+            }
+
+            hideError();
+            setLoading(true);
+            clearResults();
+
+            try {
+                const response = await fetch('/patients/search?q=' + encodeURIComponent(query));
+                if (!response.ok) {
+                    throw new Error('Error del servidor: ' + response.status + ' ' + response.statusText);
+                }
+                const data = await response.json();
+                renderResults(data);
+            } catch (err) {
+                showError('No se pudo completar la búsqueda: ' + err.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function renderResults(data) {
+            if (!data || (Array.isArray(data) && data.length === 0)) {
+                noResults.classList.add('visible');
+                resultsCount.textContent = '';
+                return;
+            }
+
+            const rows = Array.isArray(data) ? data : [data];
+
+            resultsCount.textContent = 'Se encontraron ' + rows.length + ' resultado' + (rows.length !== 1 ? 's' : '') + '.';
+
+            rows.forEach(patient => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${escapeHtml(patient.id)}</td>
+                    <td>${escapeHtml(patient.full_name)}</td>
+                    <td>${escapeHtml(patient.document_id)}</td>
+                    <td>${escapeHtml(patient.email)}</td>
+                    <td>${escapeHtml(patient.phone || '—')}</td>
+                    <td>${escapeHtml(patient.birth_date || '—')}</td>
+                `;
+                resultsBody.appendChild(tr);
+            });
+        }
+
+        function setLoading(state) {
+            loading.classList.toggle('visible', state);
+            searchBtn.disabled = state;
+        }
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('visible');
+        }
+
+        function hideError() {
+            errorMsg.textContent = '';
+            errorMsg.classList.remove('visible');
+        }
+
+        function clearResults() {
+            resultsBody.innerHTML = '';
+            noResults.classList.remove('visible');
+            resultsCount.textContent = '';
+        }
+
+        function escapeHtml(str) {
+            if (str == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
