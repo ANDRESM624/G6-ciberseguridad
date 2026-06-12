@@ -158,6 +158,80 @@ def login_post():
 
 
 # ------------------------------------------------------------------
+# Ruta de búsqueda de pacientes (vista)
+# ------------------------------------------------------------------
+
+@app.route("/search")
+def search_page():
+    """
+    GET /search
+    Muestra la página de búsqueda de pacientes.
+    Requiere sesión activa.
+    """
+    if "usuario_id" not in session:
+        flash("Debes iniciar sesión para acceder a la búsqueda.", "warning")
+        return redirect(url_for("login_get"))
+
+    return render_template("search.html")
+
+
+# ------------------------------------------------------------------
+# API de búsqueda de pacientes (INTENCIONALMENTE VULNERABLE)
+#
+# ADVERTENCIA EDUCATIVA: Este endpoint concatena el input del usuario
+# directamente en la consulta SQL para demostrar SQL Injection (A05).
+# NUNCA hacer esto en producción — usar consultas parametrizadas.
+# ------------------------------------------------------------------
+
+@app.route("/patients/search")
+def patients_search():
+    """
+    GET /patients/search?q=<término>
+    Busca pacientes cuyo nombre coincida parcialmente con el término.
+    Devuelve JSON.
+
+    VULNERABLE a SQL Injection: el parámetro 'q' se concatena
+    directamente en la consulta SQL (sin parámetros ni sanitización).
+
+    Consulta original:
+        SELECT id, full_name, document_id, email, phone, birth_date
+        FROM patients
+        WHERE full_name LIKE '%<q>%';
+    """
+    if "usuario_id" not in session:
+        return {"error": "No autorizado"}, 401
+
+    q = request.args.get("q", "").strip()
+
+    if not q:
+        return {"error": "Parámetro 'q' requerido"}, 400
+
+    # VULNERABILIDAD INTENCIONAL: concatenación directa del input
+    # Permite inyección SQL: ', OR, UNION, ORDER BY, etc.
+    sql = (
+        "SELECT id, full_name, document_id, email, phone, birth_date "
+        f"FROM patients WHERE full_name LIKE '%{q}%'"
+    )
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                filas = cur.fetchall()
+    except Exception as error:
+        print(f"[app] Error en /patients/search: {error}")
+        return {"error": "Error interno del servidor"}, 500
+
+    if not filas:
+        return []
+
+    columnas = ["id", "full_name", "document_id", "email", "phone", "birth_date"]
+    resultados = [dict(zip(columnas, fila)) for fila in filas]
+
+    return resultados
+
+
+# ------------------------------------------------------------------
 # Ruta de cierre de sesión
 # ------------------------------------------------------------------
 
