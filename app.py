@@ -17,6 +17,7 @@ from flask import (
     redirect,
     url_for,
     flash,
+    jsonify,
 )
 
 import atexit
@@ -232,6 +233,105 @@ def patients_search():
 
 
 # ------------------------------------------------------------------
+# Ruta de perfil de paciente (INTENCIONALMENTE VULNERABLE)
+#
+# ADVERTENCIA EDUCATIVA: Este endpoint NO valida el tipo ni rango
+# del parámetro <id>, NO usa bloques try-except y accede a una
+# estructura de datos mediante indexación directa. Cualquier entrada
+# inesperada (string, índice fuera de rango, caracteres especiales)
+# provoca una excepción no capturada que, combinada con debug=True,
+# expone el stack trace completo al navegador (CWE-209, OWASP A10).
+# NUNCA hacer esto en producción.
+# ------------------------------------------------------------------
+
+# Estructura de datos simulada con información de pacientes.
+# Se usa una lista (no un diccionario) para que el acceso por índice
+# genere errores de tipo (TypeError) o de rango (IndexError) cuando
+# el Red Team envíe payloads malformados.
+PATIENTS_DATA = [
+    {
+        "id": 1,
+        "full_name": "Carlos Mendoza",
+        "document_id": "V-12345678",
+        "email": "cmendoza@email.com",
+        "phone": "0414-1234567",
+        "birth_date": "1985-04-12",
+        "diagnosis": "Hipertensión arterial",
+        "blood_type": "O+",
+        "allergies": "Penicilina",
+    },
+    {
+        "id": 2,
+        "full_name": "María Fernández",
+        "document_id": "V-87654321",
+        "email": "mfernandez@email.com",
+        "phone": "0412-9876543",
+        "birth_date": "1990-11-25",
+        "diagnosis": "Diabetes tipo 2",
+        "blood_type": "A+",
+        "allergies": "Ninguna",
+    },
+    {
+        "id": 3,
+        "full_name": "José Pérez",
+        "document_id": "V-11223344",
+        "email": "jperez@email.com",
+        "phone": "0416-1122334",
+        "birth_date": "1978-02-05",
+        "diagnosis": "Asma bronquial",
+        "blood_type": "B-",
+        "allergies": "Aspirina, Ibuprofeno",
+    },
+    {
+        "id": 4,
+        "full_name": "Ana Gómez",
+        "document_id": "V-44332211",
+        "email": "agomez@email.com",
+        "phone": "0424-4433221",
+        "birth_date": "2001-08-19",
+        "diagnosis": "Gastritis crónica",
+        "blood_type": "AB+",
+        "allergies": "Mariscos",
+    },
+    {
+        "id": 5,
+        "full_name": "Luis Rodríguez",
+        "document_id": "V-55667788",
+        "email": "lrodriguez@email.com",
+        "phone": "0414-5566778",
+        "birth_date": "1995-12-30",
+        "diagnosis": "Migraña crónica",
+        "blood_type": "O-",
+        "allergies": "Sulfonamidas",
+    },
+]
+
+
+@app.route("/patients/<id>")
+def patient_profile(id):
+    """
+    GET /patients/<id>
+    Devuelve el perfil completo de un paciente según su ID.
+
+    VULNERABLE (OWASP A10 — CWE-209):
+    - No valida el tipo de dato del parámetro 'id'.
+    - No usa try-except ni comprobaciones de existencia.
+    - Convierte 'id' a entero con int() sin protección (puede lanzar ValueError).
+    - Usa el entero como índice directo de la lista (puede lanzar IndexError).
+    - Con debug=True, cualquier excepción expone el stack trace completo,
+      revelando rutas del sistema, versiones de software y código fuente.
+    """
+    # Conversión directa sin validación — lanza ValueError si 'id' no es numérico
+    patient_index = int(id)
+
+    # Acceso directo por índice — lanza IndexError si está fuera de rango
+    patient = PATIENTS_DATA[patient_index]
+
+    # Renderizar el template con los datos del paciente
+    return render_template("profile.html", patient=patient)
+
+
+# ------------------------------------------------------------------
 # Ruta de cierre de sesión
 # ------------------------------------------------------------------
 
@@ -288,5 +388,5 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",   # Escuchar en todas las interfaces de red
         port=5000,         # Puerto por defecto de Flask
-        debug=Config.DEBUG,
+        debug=True,          # VULNERABLE: expone stack traces en el navegador (A10)
     )
