@@ -21,7 +21,10 @@ from flask import (
 )
 
 import atexit
+import logging
+import re
 
+from logging.handlers import RotatingFileHandler
 from config import Config
 from database import init_pool, init_db, get_db_connection, close_pool
 
@@ -34,6 +37,54 @@ app = Flask(__name__)
 # Cargar la configuración desde la clase Config (lee el archivo .env)
 app.secret_key = Config.SECRET_KEY
 app.debug = Config.DEBUG
+
+# BLINDAJE A10: Forzar debug=False independientemente del .env.
+# Previene que un FLASK_DEBUG=true accidental active el debugger de
+# Werkzeug y exponga stack traces al cliente.
+app.debug = False
+app.config["DEBUG"] = False
+
+# ------------------------------------------------------------------
+# Configuración de logging seguro (A10:2025 — CWE-209)
+# Los stack traces completos se escriben únicamente en el archivo
+# 'backend_errors.log' y en consola del servidor. NUNCA se exponen
+# al cliente (frontend) a través de respuestas HTTP.
+# ------------------------------------------------------------------
+logger = logging.getLogger("medcore_errors")
+logger.setLevel(logging.ERROR)
+
+# Handler: archivo backend_errors.log con rotación (previene DoS por Log Flooding)
+_file_handler = RotatingFileHandler(
+    "backend_errors.log",
+    maxBytes=5 * 1024 * 1024,  # 5 MB por archivo
+    backupCount=3,              # Mantener 3 backups (total: ~20 MB máx)
+    encoding="utf-8",
+)
+_file_handler.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+)
+logger.addHandler(_file_handler)
+
+# Handler: consola del servidor (stderr)
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+)
+logger.addHandler(_console_handler)
+
+
+# ------------------------------------------------------------------
+# Helper de sanitización para logging (A10:2025 — CWE-117)
+# Previene Log Forging / CRLF Injection: un atacante podría inyectar
+# secuencias \r\n en parámetros de URL para fabricar entradas falsas
+# en el log. Esta función elimina todos los caracteres de control.
+# ------------------------------------------------------------------
+
+def _sanitize_log_param(value):
+    """Elimina caracteres de control (\r, \n, \t, etc.) de un valor antes de loguearlo."""
+    if not isinstance(value, str):
+        value = str(value)
+    return re.sub(r'[\x00-\x1f\x7f]', '_', value)
 
 
 # ------------------------------------------------------------------
@@ -132,7 +183,7 @@ def login_post():
 
     except Exception as error:
         # Registrar el error en consola y mostrar un mensaje genérico al usuario
-        print(f"[app] Error al consultar la base de datos en /login: {error}")
+        logger.error("Error al consultar la base de datos en /login: %s", error)
         flash("Ocurrió un error interno. Intenta nuevamente.", "danger")
         return redirect(url_for("login_get"))
 
@@ -313,22 +364,40 @@ def patient_profile(id):
     GET /patients/<id>
     Devuelve el perfil completo de un paciente según su ID.
 
-    VULNERABLE (OWASP A10 — CWE-209):
-    - No valida el tipo de dato del parámetro 'id'.
-    - No usa try-except ni comprobaciones de existencia.
-    - Convierte 'id' a entero con int() sin protección (puede lanzar ValueError).
-    - Usa el entero como índice directo de la lista (puede lanzar IndexError).
-    - Con debug=True, cualquier excepción expone el stack trace completo,
-      revelando rutas del sistema, versiones de software y código fuente.
+    REMEDIADO (A10:2025 — CWE-209):
+    - Valida que 'id' sea numérico antes de convertirlo.
+    - Envuelve toda la lógica en try-except para capturar
+      cualquier excepción inesperada.
+    - Devuelve respuestas JSON sanitizadas sin revelar
+      stack traces, rutas del sistema ni nombres de excepciones.
+    - Los errores reales se registran en backend_errors.log.
     """
-    # Conversión directa sin validación — lanza ValueError si 'id' no es numérico
-    patient_index = int(id)
+    try:
+        # Validación de tipo: 'id' debe ser numérico
+        if not id.isdigit():
+            return jsonify({"error": "Paciente no encontrado o solicitud inválida.", "status": 400}), 400
 
-    # Acceso directo por índice — lanza IndexError si está fuera de rango
-    patient = PATIENTS_DATA[patient_index]
+        patient_index = int(id)
 
-    # Renderizar el template con los datos del paciente
-    return render_template("profile.html", patient=patient)
+        # Validación de rango
+        if patient_index < 0 or patient_index >= len(PATIENTS_DATA):
+            return jsonify({"error": "Paciente no encontrado o solicitud inválida.", "status": 404}), 404
+
+        patient = PATIENTS_DATA[patient_index]
+
+        return render_template("profile.html", patient=patient)
+
+    except (ValueError, TypeError, IndexError) as error:
+        # Error de tipo o de índice: registrar internamente, responder genérico
+        safe_id = _sanitize_log_param(id)
+        logger.error("Excepción controlada en /patients/%s: %s", safe_id, error)
+        return jsonify({"error": "Paciente no encontrado o solicitud inválida.", "status": 400}), 400
+
+    except Exception as error:
+        # Cualquier otro error imprevisto: registrar con traceback completo, responder genérico
+        safe_id = _sanitize_log_param(id)
+        logger.exception("Excepción inesperada en /patients/%s", safe_id)
+        return jsonify({"error": "Error interno del servidor.", "status": 500}), 500
 
 
 # ------------------------------------------------------------------
@@ -379,6 +448,45 @@ def dashboard():
 
 
 # ------------------------------------------------------------------
+# Hardening de cabeceras HTTP (A10:2025 — CWE-200, CWE-693)
+# Se ejecuta DESPUÉS de cada respuesta para agregar cabeceras
+# de seguridad que previenen fingerprinting del framework y
+# hardening del navegador contra MIME sniffing.
+# ------------------------------------------------------------------
+
+@app.after_request
+def agregar_cabeceras_seguridad(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Server"] = "MedCore-Server"  # Enmascara Werkzeug/Python
+    return response
+
+
+# ------------------------------------------------------------------
+# Manejadores globales de excepciones (A10:2025 — CWE-209)
+# Capturan cualquier error imprevisto en el backend y devuelven
+# respuestas sanitizadas al cliente. Los stack traces reales se
+# escriben únicamente en backend_errors.log y consola del servidor.
+# ------------------------------------------------------------------
+
+@app.errorhandler(404)
+def pagina_no_encontrada(error):
+    logger.error("404 Not Found: %s", request.url)
+    return jsonify({"error": "Recurso no encontrado.", "status": 404}), 404
+
+
+@app.errorhandler(500)
+def error_interno_servidor(error):
+    logger.exception("500 Internal Server Error: %s", request.url)
+    return jsonify({"error": "Error interno del servidor.", "status": 500}), 500
+
+
+@app.errorhandler(Exception)
+def manejar_excepcion_global(error):
+    logger.exception("Excepción no capturada: %s", request.url)
+    return jsonify({"error": "Error interno del servidor.", "status": 500}), 500
+
+
+# ------------------------------------------------------------------
 # Punto de entrada cuando se ejecuta directamente
 # ------------------------------------------------------------------
 
@@ -388,5 +496,5 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",   # Escuchar en todas las interfaces de red
         port=5000,         # Puerto por defecto de Flask
-        debug=True,          # VULNERABLE: expone stack traces en el navegador (A10)
+        debug=False,       # REMEDIADO: stack traces NO se exponen al cliente (A10)
     )
