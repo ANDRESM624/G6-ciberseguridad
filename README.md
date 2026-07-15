@@ -233,17 +233,6 @@ def agregar_cabeceras_seguridad(response):
 
 ---
 
-## Vulnerabilidades Educativas Presentes (NO mitigadas a proposito)
-
-| Vulnerabilidad | Ubicacion | OWASP |
-|----------------|-----------|-------|
-| SQL Injection | `/patients/search` (concatenacion directa) | A05:2025 |
-| Passwords en texto plano | Tabla `usuarios` | A07:2025 |
-
-Estas vulnerabilidades son **intencionales** y pertenecen al Sub-equipo 1.
-
----
-
 ## Produccion (Gunicorn)
 
 ```bash
@@ -259,5 +248,14 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 ## Equipo
 
-- **Sub-equipo 1:** Inyeccion SQL (A05:2025)
-- **Sub-equipo 2:** Manejo de Excepciones (A10:2025) - Backend
+David Crespo — C.I: 30.497.143
+
+Andres Martinez — C.I: 29.686.554
+
+Edwin Li — C.I: 29.845.709
+
+Omar Lopez — C.I: 20.896.095
+
+Diego Flores — C.I: 31.290.731
+
+Jose Bozzelli — C.I: 30.142.780
